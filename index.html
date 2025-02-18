@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>五子棋游戏</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <h1>五子棋</h1>
+        
+        <div class="game-setup">
+            <!-- 游戏模式选择 -->
+            <div class="game-mode" id="gameModeSelection">
+                <h2>选择游戏模式</h2>
+                <button id="pvpMode">双人对战</button>
+                <button id="pveMode">人机对战</button>
+            </div>
+        
+            <!-- AI难度选择 -->
+            <div class="difficulty-selection" id="difficultySelection" style="display: none;">
+                <h2>选择AI难度</h2>
+                <button data-difficulty="easy">简单</button>
+                <button data-difficulty="medium">中等</button>
+                <button data-difficulty="hard">困难</button>
+            </div>
+        
+            <!-- 主题选择 -->
+            <div class="theme-selection">
+                <h3>选择主题</h3>
+                <select id="themeSelect">
+                    <option value="classic">经典黑白</option>
+                    <option value="wooden">木质风格</option>
+                    <option value="colorful">彩色主题</option>
+                </select>
+            </div>
+        
+            <!-- 游戏规则按钮 -->
+            <div class="rules">
+                <button id="showRules">查看游戏规则</button>
+            </div>
+        </div>
+
+        <!-- 游戏区域 -->
+        <div class="game-area" style="display: none;">
+            <div class="game-info">
+                <span id="currentPlayer">当前回合: 黑子</span>
+                <span id="undoCount">剩余悔棋次数: 3</span>
+            </div>
+            <canvas id="gameBoard" width="600" height="600"></canvas>
+            <div class="game-controls">
+                <button id="undoButton">悔棋</button>
+                <button id="restartButton">重新开始</button>
+                <button id="backToMenu">返回菜单</button>
+            </div>
+        </div>
+    </div>
+    <script src="game.js"></script>
+</body>
+</html>
