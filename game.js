@@ -12,35 +12,35 @@ class GomokuGame {
         this.undoCount = 3;
         this.gameStarted = false;
         this.winner = null;
-        this.previewPosition = { x: 7, y: 7 }; // 预览位置初始化在棋盘中心
+        this.previewPosition = { x: 7, y: 7 };
+
+        // AI增强参数
+        this.searchDepth = {
+            easy: 1,
+            medium: 3,
+            hard: 5
+        };
+        this.isThinking = false;
 
         this.initializeEventListeners();
         this.initializeThemes();
     }
 
     initializeEventListeners() {
-        // 游戏模式选择
         document.getElementById('pvpMode').addEventListener('click', () => this.selectGameMode('pvp'));
         document.getElementById('pveMode').addEventListener('click', () => this.selectGameMode('pve'));
 
-        // AI难度选择
         document.querySelectorAll('.difficulty-selection button').forEach(button => {
             button.addEventListener('click', () => this.selectDifficulty(button.dataset.difficulty));
         });
 
-        // 主题切换
         document.getElementById('themeSelect').addEventListener('change', (e) => this.changeTheme(e.target.value));
-
-        // 游戏控制
         document.getElementById('undoButton').addEventListener('click', () => this.undo());
         document.getElementById('restartButton').addEventListener('click', () => this.restart());
         document.getElementById('backToMenu').addEventListener('click', () => this.backToMenu());
         document.getElementById('showRules').addEventListener('click', () => this.showRules());
 
-        // 棋盘点击
         this.canvas.addEventListener('click', (e) => this.handleClick(e));
-
-        // 键盘控制
         document.addEventListener('keydown', (e) => this.handleKeyPress(e));
     }
 
@@ -105,29 +105,24 @@ class GomokuGame {
     drawBoard() {
         const theme = this.themes[this.currentTheme];
         
-        // 绘制棋盘背景
         this.ctx.fillStyle = theme.board;
         this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
 
-        // 绘制网格线
         this.ctx.strokeStyle = theme.lines;
         this.ctx.lineWidth = 1;
 
         for (let i = 0; i < this.boardSize; i++) {
-            // 横线
             this.ctx.beginPath();
             this.ctx.moveTo(this.cellSize / 2, i * this.cellSize + this.cellSize / 2);
             this.ctx.lineTo(this.canvas.width - this.cellSize / 2, i * this.cellSize + this.cellSize / 2);
             this.ctx.stroke();
 
-            // 竖线
             this.ctx.beginPath();
             this.ctx.moveTo(i * this.cellSize + this.cellSize / 2, this.cellSize / 2);
             this.ctx.lineTo(i * this.cellSize + this.cellSize / 2, this.canvas.height - this.cellSize / 2);
             this.ctx.stroke();
         }
 
-        // 绘制预览位置
         if (this.gameStarted && !this.winner) {
             const centerX = this.previewPosition.x * this.cellSize + this.cellSize / 2;
             const centerY = this.previewPosition.y * this.cellSize + this.cellSize / 2;
@@ -155,7 +150,6 @@ class GomokuGame {
         this.ctx.lineWidth = 1;
         this.ctx.stroke();
 
-        // 添加落子动画
         const piece = document.createElement('div');
         piece.className = 'piece-animation';
         piece.style.position = 'absolute';
@@ -166,7 +160,7 @@ class GomokuGame {
     }
 
     handleClick(e) {
-        if (!this.gameStarted || this.winner) return;
+        if (!this.gameStarted || this.winner || this.isThinking) return;
 
         const rect = this.canvas.getBoundingClientRect();
         const scaleX = this.canvas.width / rect.width;
@@ -190,9 +184,7 @@ class GomokuGame {
     makeMove(x, y) {
         if (this.board[y][x]) return;
 
-        // 更新预览位置
         this.previewPosition = { x, y };
-
         this.board[y][x] = this.currentPlayer;
         this.history.push({ x, y, player: this.currentPlayer });
         this.drawPiece(x, y, this.currentPlayer);
@@ -207,72 +199,289 @@ class GomokuGame {
         document.getElementById('currentPlayer').textContent = `当前回合: ${this.currentPlayer === 'black' ? '黑子' : '白子'}`;
 
         if (this.gameMode === 'pve' && this.currentPlayer === 'white') {
-            setTimeout(() => this.makeAIMove(), 500);
+            this.isThinking = true;
+            document.getElementById('currentPlayer').textContent = 'AI思考中...';
+            setTimeout(() => this.makeAIMove(), 300);
         }
     }
 
     makeAIMove() {
         const move = this.calculateAIMove();
         if (move) {
+            this.isThinking = false;
             this.makeMove(move.x, move.y);
         }
     }
 
     calculateAIMove() {
-        // AI移动逻辑
-        const emptyCells = [];
+        switch (this.difficulty) {
+            case 'easy':
+                return this.getEasyMove();
+            case 'medium':
+                return this.getMediumMove();
+            case 'hard':
+                return this.getHardMove();
+            default:
+                return this.getEasyMove();
+        }
+    }
+
+    // 简单难度：随机选择 + 基础防守
+    getEasyMove() {
+        // 检查是否有立即获胜的机会
+        const winMove = this.findWinningMove('white');
+        if (winMove && Math.random() < 0.7) return winMove;
+
+        // 检查是否需要防守
+        const blockMove = this.findWinningMove('black');
+        if (blockMove && Math.random() < 0.5) return blockMove;
+
+        // 随机选择一个不错的位置
+        const candidates = this.getCandidateMoves();
+        if (candidates.length === 0) return null;
+        
+        const randomIndex = Math.floor(Math.random() * Math.min(8, candidates.length));
+        return candidates[randomIndex];
+    }
+
+    // 中等难度：规则基础 + 有限前瞻
+    getMediumMove() {
+        // 必胜检查
+        const winMove = this.findWinningMove('white');
+        if (winMove) return winMove;
+
+        // 必防检查
+        const blockMove = this.findWinningMove('black');
+        if (blockMove) return blockMove;
+
+        // 检查双重威胁
+        const doubleAttack = this.findDoubleAttackMove('white');
+        if (doubleAttack) return doubleAttack;
+
+        // 阻止对手双重威胁
+        const blockDoubleAttack = this.findDoubleAttackMove('black');
+        if (blockDoubleAttack) return blockDoubleAttack;
+
+        // 使用评估函数选择最佳位置
+        return this.getBestMoveByEvaluation();
+    }
+
+    // 困难难度：极小化极大算法 + α-β剪枝
+    getHardMove() {
+        const depth = this.searchDepth.hard;
+        const result = this.alphabeta(depth, -Infinity, Infinity, true);
+        return result.move;
+    }
+
+    // α-β剪枝的极小化极大算法
+    alphabeta(depth, alpha, beta, maximizingPlayer) {
+        if (depth === 0) {
+            return { score: this.evaluateBoard(), move: null };
+        }
+
+        const moves = this.getCandidateMoves(10); // 限制搜索宽度
+        if (moves.length === 0) {
+            return { score: this.evaluateBoard(), move: null };
+        }
+
+        let bestMove = moves[0];
+
+        if (maximizingPlayer) {
+            let maxScore = -Infinity;
+            for (const move of moves) {
+                this.board[move.y][move.x] = 'white';
+                
+                // 检查是否获胜
+                if (this.checkWinAt(move.x, move.y, 'white')) {
+                    this.board[move.y][move.x] = null;
+                    return { score: 100000, move: move };
+                }
+
+                const result = this.alphabeta(depth - 1, alpha, beta, false);
+                this.board[move.y][move.x] = null;
+
+                if (result.score > maxScore) {
+                    maxScore = result.score;
+                    bestMove = move;
+                }
+                alpha = Math.max(alpha, result.score);
+                if (beta <= alpha) break; // α-β剪枝
+            }
+            return { score: maxScore, move: bestMove };
+        } else {
+            let minScore = Infinity;
+            for (const move of moves) {
+                this.board[move.y][move.x] = 'black';
+                
+                // 检查是否对手获胜
+                if (this.checkWinAt(move.x, move.y, 'black')) {
+                    this.board[move.y][move.x] = null;
+                    return { score: -100000, move: move };
+                }
+
+                const result = this.alphabeta(depth - 1, alpha, beta, true);
+                this.board[move.y][move.x] = null;
+
+                if (result.score < minScore) {
+                    minScore = result.score;
+                    bestMove = move;
+                }
+                beta = Math.min(beta, result.score);
+                if (beta <= alpha) break; // α-β剪枝
+            }
+            return { score: minScore, move: bestMove };
+        }
+    }
+
+    // 寻找获胜位置
+    findWinningMove(player) {
         for (let y = 0; y < this.boardSize; y++) {
             for (let x = 0; x < this.boardSize; x++) {
                 if (!this.board[y][x]) {
-                    const score = this.evaluatePosition(x, y);
-                    emptyCells.push({ x, y, score });
+                    this.board[y][x] = player;
+                    if (this.checkWinAt(x, y, player)) {
+                        this.board[y][x] = null;
+                        return { x, y };
+                    }
+                    this.board[y][x] = null;
+                }
+            }
+        }
+        return null;
+    }
+
+    // 寻找双重威胁位置
+    findDoubleAttackMove(player) {
+        for (let y = 0; y < this.boardSize; y++) {
+            for (let x = 0; x < this.boardSize; x++) {
+                if (!this.board[y][x]) {
+                    this.board[y][x] = player;
+                    let threats = 0;
+                    
+                    // 检查这一步棋后能创造多少威胁
+                    for (let dy = 0; dy < this.boardSize; dy++) {
+                        for (let dx = 0; dx < this.boardSize; dx++) {
+                            if (!this.board[dy][dx] && !(dx === x && dy === y)) {
+                                this.board[dy][dx] = player;
+                                if (this.checkWinAt(dx, dy, player)) {
+                                    threats++;
+                                }
+                                this.board[dy][dx] = null;
+                            }
+                        }
+                    }
+                    
+                    this.board[y][x] = null;
+                    if (threats >= 2) {
+                        return { x, y };
+                    }
+                }
+            }
+        }
+        return null;
+    }
+
+    // 获取候选移动位置
+    getCandidateMoves(limit = 20) {
+        const moves = [];
+        const visited = new Set();
+
+        // 在已有棋子周围寻找候选位置
+        for (const move of this.history) {
+            for (let dy = -2; dy <= 2; dy++) {
+                for (let dx = -2; dx <= 2; dx++) {
+                    const x = move.x + dx;
+                    const y = move.y + dy;
+                    const key = `${x},${y}`;
+                    
+                    if (this.isValidPosition(x, y) && !this.board[y][x] && !visited.has(key)) {
+                        visited.add(key);
+                        const score = this.evaluatePosition(x, y);
+                        moves.push({ x, y, score });
+                    }
                 }
             }
         }
 
-        if (emptyCells.length === 0) return null;
-
-        // 根据难度调整AI的选择
-        emptyCells.sort((a, b) => b.score - a.score);
-        let moveIndex = 0;
-
-        switch (this.difficulty) {
-            case 'easy':
-                moveIndex = Math.floor(Math.random() * Math.min(5, emptyCells.length));
-                break;
-            case 'medium':
-                moveIndex = Math.floor(Math.random() * Math.min(3, emptyCells.length));
-                break;
-            case 'hard':
-                moveIndex = 0; // 始终选择最佳位置
-                break;
+        // 如果没有历史记录，从中心开始
+        if (moves.length === 0) {
+            const center = Math.floor(this.boardSize / 2);
+            for (let dy = -2; dy <= 2; dy++) {
+                for (let dx = -2; dx <= 2; dx++) {
+                    const x = center + dx;
+                    const y = center + dy;
+                    if (this.isValidPosition(x, y) && !this.board[y][x]) {
+                        moves.push({ x, y, score: this.evaluatePosition(x, y) });
+                    }
+                }
+            }
         }
 
-        return emptyCells[moveIndex];
+        // 按分数排序并限制数量
+        moves.sort((a, b) => b.score - a.score);
+        return moves.slice(0, limit);
     }
 
-    evaluatePosition(x, y) {
-        // 评估位置分数
+    // 评估整个棋盘
+    evaluateBoard() {
+        let score = 0;
+        
+        // 评估所有位置
+        for (let y = 0; y < this.boardSize; y++) {
+            for (let x = 0; x < this.boardSize; x++) {
+                if (this.board[y][x] === 'white') {
+                    score += this.evaluatePosition(x, y, 'white');
+                } else if (this.board[y][x] === 'black') {
+                    score -= this.evaluatePosition(x, y, 'black');
+                }
+            }
+        }
+        
+        return score;
+    }
+
+    // 使用评估函数获取最佳移动
+    getBestMoveByEvaluation() {
+        const candidates = this.getCandidateMoves();
+        if (candidates.length === 0) return null;
+        
+        return candidates[0]; // 已经按分数排序
+    }
+
+    // 增强的位置评估函数
+    evaluatePosition(x, y, forPlayer = null) {
         let score = 0;
         const directions = [
-            [1, 0], [0, 1], [1, 1], [1, -1] // 水平、垂直、对角线
+            [1, 0], [0, 1], [1, 1], [1, -1]
         ];
 
         directions.forEach(([dx, dy]) => {
-            score += this.evaluateDirection(x, y, dx, dy, 'white'); // AI得分
-            score += this.evaluateDirection(x, y, dx, dy, 'black') * 1.1; // 防守得分略高
+            if (forPlayer) {
+                score += this.evaluateDirection(x, y, dx, dy, forPlayer);
+            } else {
+                score += this.evaluateDirection(x, y, dx, dy, 'white') * 1.0;
+                score += this.evaluateDirection(x, y, dx, dy, 'black') * 1.1; // 防守权重略高
+            }
         });
+
+        // 位置权重：中心位置更有价值
+        const centerX = Math.floor(this.boardSize / 2);
+        const centerY = Math.floor(this.boardSize / 2);
+        const distanceFromCenter = Math.abs(x - centerX) + Math.abs(y - centerY);
+        score += Math.max(0, 10 - distanceFromCenter);
 
         return score;
     }
 
+    // 增强的方向评估
     evaluateDirection(x, y, dx, dy, player) {
         let score = 0;
         let count = 0;
         let blocked = 0;
+        let spaces = 0;
 
         // 正向检查
-        for (let i = 1; i < 5; i++) {
+        for (let i = 1; i < 6; i++) {
             const newX = x + dx * i;
             const newY = y + dy * i;
             if (!this.isValidPosition(newX, newY)) {
@@ -285,12 +494,14 @@ class GomokuGame {
                 blocked++;
                 break;
             } else {
-                break;
+                spaces++;
+                if (spaces > 1) break; // 最多允许一个空格
             }
         }
 
         // 反向检查
-        for (let i = 1; i < 5; i++) {
+        spaces = 0;
+        for (let i = 1; i < 6; i++) {
             const newX = x - dx * i;
             const newY = y - dy * i;
             if (!this.isValidPosition(newX, newY)) {
@@ -303,26 +514,31 @@ class GomokuGame {
                 blocked++;
                 break;
             } else {
-                break;
+                spaces++;
+                if (spaces > 1) break;
             }
         }
 
-        // 计算分数
-        if (count >= 4) return 10000; // 必胜
-        if (count === 3 && blocked === 0) return 1000; // 活四
-        if (count === 3 && blocked === 1) return 100; // 冲四
-        if (count === 2 && blocked === 0) return 50; // 活三
-        if (count === 2 && blocked === 1) return 10; // 眠三
-        if (count === 1 && blocked === 0) return 5; // 活二
+        // 更精细的评分系统
+        if (count >= 4) return 50000; // 成五
+        if (count === 3) {
+            if (blocked === 0) return 5000; // 活四
+            if (blocked === 1) return 1000; // 冲四
+        }
+        if (count === 2) {
+            if (blocked === 0) return 500; // 活三
+            if (blocked === 1) return 100; // 眠三
+        }
+        if (count === 1) {
+            if (blocked === 0) return 50; // 活二
+            if (blocked === 1) return 10; // 眠二
+        }
 
-        return 1;
+        return Math.max(1, count);
     }
 
-    isValidPosition(x, y) {
-        return x >= 0 && x < this.boardSize && y >= 0 && y < this.boardSize;
-    }
-
-    checkWin(x, y) {
+    // 检查指定位置是否获胜
+    checkWinAt(x, y, player) {
         const directions = [
             [1, 0], [0, 1], [1, 1], [1, -1]
         ];
@@ -330,21 +546,19 @@ class GomokuGame {
         return directions.some(([dx, dy]) => {
             let count = 1;
             
-            // 正向检查
             for (let i = 1; i < 5; i++) {
                 const newX = x + dx * i;
                 const newY = y + dy * i;
                 if (!this.isValidPosition(newX, newY) || 
-                    this.board[newY][newX] !== this.currentPlayer) break;
+                    this.board[newY][newX] !== player) break;
                 count++;
             }
             
-            // 反向检查
             for (let i = 1; i < 5; i++) {
                 const newX = x - dx * i;
                 const newY = y - dy * i;
                 if (!this.isValidPosition(newX, newY) || 
-                    this.board[newY][newX] !== this.currentPlayer) break;
+                    this.board[newY][newX] !== player) break;
                 count++;
             }
 
@@ -352,18 +566,24 @@ class GomokuGame {
         });
     }
 
+    isValidPosition(x, y) {
+        return x >= 0 && x < this.boardSize && y >= 0 && y < this.boardSize;
+    }
+
+    checkWin(x, y) {
+        return this.checkWinAt(x, y, this.currentPlayer);
+    }
+
     undo() {
-        if (!this.gameStarted || this.history.length === 0 || this.undoCount <= 0) return;
+        if (!this.gameStarted || this.history.length === 0 || this.undoCount <= 0 || this.isThinking) return;
 
         if (this.gameMode === 'pve') {
-            // 在人机模式下，需要撤销两步（玩家和AI的移动）
             for (let i = 0; i < 2 && this.history.length > 0; i++) {
                 const lastMove = this.history.pop();
                 this.board[lastMove.y][lastMove.x] = null;
             }
             this.currentPlayer = 'black';
         } else {
-            // 在双人模式下，只撤销一步
             const lastMove = this.history.pop();
             this.board[lastMove.y][lastMove.x] = null;
             this.currentPlayer = lastMove.player;
@@ -374,7 +594,6 @@ class GomokuGame {
         document.getElementById('undoCount').textContent = `剩余悔棋次数: ${this.undoCount}`;
         document.getElementById('currentPlayer').textContent = `当前回合: ${this.currentPlayer === 'black' ? '黑子' : '白子'}`;
 
-        // 重绘棋盘
         this.drawBoard();
         this.history.forEach(move => {
             this.drawPiece(move.x, move.y, move.player);
@@ -387,6 +606,7 @@ class GomokuGame {
         this.currentPlayer = 'black';
         this.undoCount = 3;
         this.winner = null;
+        this.isThinking = false;
         this.drawBoard();
         document.getElementById('currentPlayer').textContent = `当前回合: 黑子`;
         document.getElementById('undoCount').textContent = `剩余悔棋次数: ${this.undoCount}`;
@@ -403,11 +623,11 @@ class GomokuGame {
     }
 
     showRules() {
-        alert('游戏规则：\n1. 黑白双方轮流落子\n2. 在横、竖、斜方向连成5个或更多同色棋子即可获胜\n3. 每局游戏最多可悔棋3次\n4. 使用方向键移动预览位置，回车键确认落子');
+        alert('游戏规则：\n1. 黑白双方轮流落子\n2. 在横、竖、斜方向连成5个或更多同色棋子即可获胜\n3. 每局游戏最多可悔棋3次\n4. 使用方向键移动预览位置，回车键确认落子\n\nAI难度说明：\n简单：基础规则 + 随机性\n中等：威胁检测 + 双重攻击\n困难：深度搜索 + 最优策略');
     }
 
     handleKeyPress(e) {
-        if (!this.gameStarted || this.winner) return;
+        if (!this.gameStarted || this.winner || this.isThinking) return;
 
         switch(e.key) {
             case 'ArrowUp':
@@ -438,7 +658,6 @@ class GomokuGame {
                 break;
         }
 
-        // 重绘棋盘和棋子
         this.drawBoard();
         this.history.forEach(move => {
             this.drawPiece(move.x, move.y, move.player);
